@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Color Grid: Foreground × Background</title>
+
+    <style>
+        body {
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+            min-height: 100dvh;
+            margin: 0;
+            padding: 0;
+        }
+
+        #colorContrastGrid {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            height: 100dvh;
+        }
+
+        #colorContrastGrid > div:nth-child(1) {
+            padding: 1rem;
+            background: whitesmoke;
+            display: grid;
+            grid-template-rows: 1fr auto;
+            gap: 2rem;
+            align-items: start;
+        }
+
+        #colorContrastGrid > div:nth-child(2) {
+            padding: 1rem;
+        }
+
+        label {
+            display: block;
+            margin-block-end: 8px;
+        }
+
+        label:has(input[type="checkbox"]) {
+            margin: 0;
+        }
+
+        form {
+            display: grid;
+            gap: 2rem;
+        }
+
+        select {
+            width: 100%;
+            display: block;
+        }
+
+        textarea {
+            width: 100%;
+            display: block;
+            min-height: 10lh;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            padding: .5lh;
+            box-sizing: border-box;
+        }
+
+        fieldset {
+            margin: 0;
+            border: none;
+            padding: 0;
+
+            label {
+                margin: 0;
+            }
+
+            > div {
+                display: grid;
+                gap: .5rem;
+                margin-top: .5rem;
+            }
+        }
+
+        button {
+            width: fit-content;
+            padding: 0.5rem 0.75rem;
+        }
+
+        .table-wrap {
+            margin-top: 1rem;
+            overflow: auto;
+            max-width: 100%;
+        }
+
+        table {
+            border-collapse: collapse;
+            min-width: 100%;
+            min-height: 100%;
+            table-layout: fixed;
+        }
+
+        th, td {
+            --bg-color: white;
+            --fg-color: inhert;
+            background-color: var(--bg-color);
+            color: var(--fg-color);
+            border: 1px solid hsl(0 0% 0% / 10%);
+            padding: 8px;
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        th {
+            font-size: .75rem;
+            font-weight: normal;
+        }
+
+        td {
+        }
+
+        .cell-inner {
+            display: grid;
+            grid-template-rows: 1fr auto;
+            justify-content: center;
+            > div:first-child {
+                padding: 16px;
+            }
+        }
+
+        .color-label {
+            font-weight: 600;
+        }
+
+        .contrast {
+            font-size: 0.75rem;
+        }
+
+        .badges {
+            display: flex;
+            transition: opacity 0.15s ease-in-out;
+            width: fit-content;
+            gap: 2px;
+        }
+
+        /*.badges:has(.badge.pass) {*/
+        /*    display: flex;*/
+        /*}*/
+
+        .badge {
+            display: inline-block;
+            font-size: 8px;
+            line-height: 1;
+            padding: 3px 3px;
+            border: 1px solid rgba(0, 0, 0, 0.15);
+        }
+
+        .badge.pass {
+            background: #e6f6ea;
+            color: #116329;
+            border-color: #a1e2b2;
+        }
+
+        .badge.fail {
+            background: #fff3f0;
+            color: #b31d28;
+            border-color: #f2b7ad;
+        }
+
+        .hide-badges .badges {
+            display: none !important;
+        }
+
+        .credits {
+            font-size: .875rem;
+        }
+    </style>
+    <!-- ColorJS: provides global Color (and contrast) -->
+    <script src="https://colorjs.io/dist/color.global.js"></script>
+    <script>
+        /**
+         * Color Contrast Grid Application
+         * A modular, state-driven approach to generating and filtering color contrast grids
+         */
+        class ColorContrastGrid {
+            #element;
+            #form;
+            #outputContainer;
+
+            constructor(element, options) {
+                this.#element = element;
+                this.#form = element.querySelector('#input');
+                this.#outputContainer = element.querySelector('#output');
+
+                this.#form.addEventListener("submit", (e) => {
+                    e.preventDefault();
+                    this.render();
+                });
+
+                this.#form.addEventListener("change", (e) => {
+                    e.preventDefault();
+                    this.render();
+                });
+
+                const params = new URLSearchParams(window.location.search);
+                if (params.has('colours')) {
+                    this.#form.colours.value = params.get('colours');
+                }
+
+                this.render();
+            }
+
+            render() {
+
+                const searchParams = new URLSearchParams(new FormData(this.#form));
+                const url = `${window.location.pathname}?${searchParams.toString()}`;
+                window.history.pushState(null, null, url);
+
+                let coloursData = this.#form.colours.value
+                    .split(/\r?\n/)
+                    .map(line => line.trim())
+                    .filter(line => line && !line.startsWith('# ') && !line.startsWith('//')) // ignore comment-like lines
+                    .map(line => {
+                        const idx = line.indexOf(':');
+                        let value, label, property;
+                        if (idx === -1) {
+                            value = line.trim();
+                            label = value;
+                        } else {
+                            value = line.slice(0, idx).trim();
+                            label = line.slice(idx + 1).trim() || value;
+                        }
+                        // If the value starts with -- consider it a variable
+                        if (value.startsWith('--')) {
+                            property = value;
+                            value = getComputedStyle(document.documentElement).getPropertyValue(property);
+                        }
+
+                        return {value, label, property};
+                    });
+
+                const checkedFilters = Array.from(this.#form.tests)
+                    .map(input => input.checked ? input.value : null)
+                    .filter(Boolean)
+                ;
+
+                const table = document.createElement("table");
+                const thead = document.createElement("thead");
+                table.appendChild(thead);
+                const tr = document.createElement("tr");
+                thead.appendChild(tr);
+                let th = document.createElement("th");
+                th.setAttribute('scope', 'col');
+                th.innerHTML = `BG / FG`;
+                tr.appendChild(th);
+                coloursData.forEach(data => {
+                    th = document.createElement("th");
+                    th.setAttribute('scope', 'col');
+                    let label = document.createElement('div');
+                    label.innerHTML = data.label;
+                    th.appendChild(label);
+                    let value = document.createElement('div');
+                    value.innerHTML = data.value;
+                    th.appendChild(value);
+                    if (data.property) {
+                        let property = document.createElement('div');
+                        property.innerHTML = data.property;
+                        th.appendChild(property);
+                    }
+                    tr.appendChild(th);
+                });
+
+                const tbody = document.createElement("tbody");
+                coloursData.forEach(bgData => {
+                    let tr = document.createElement("tr");
+                    th = document.createElement("th");
+                    th.setAttribute('scope', 'row');
+                    let label = document.createElement('div');
+                    label.innerHTML = bgData.label;
+                    th.appendChild(label);
+                    let value = document.createElement('div');
+                    value.innerHTML = bgData.value;
+                    th.appendChild(value);
+                    if (bgData.property) {
+                        let property = document.createElement('div');
+                        property.innerHTML = bgData.property;
+                        th.appendChild(property);
+                    }
+                    tr.appendChild(th);
+
+                    coloursData.forEach(fgData => {
+                        let td = document.createElement("td");
+                        td.setAttribute('style', `--bg-color:${bgData.value}; --fg-color:${fgData.value}`);
+
+                        const bgColor = new Color(bgData.value);
+                        const fgColor = new Color(fgData.value);
+                        const WCAG21Contrast = bgColor.contrast(fgColor, 'WCAG21');
+
+                        const tests = {
+                            'AA': WCAG21Contrast >= 4.5,
+                            'AA LG': WCAG21Contrast >= 3,
+                            'AAA': WCAG21Contrast >= 7,
+                            'AAA LG': WCAG21Contrast >= 4.5,
+                        }
+
+                        let passed = true;
+                        if (checkedFilters.length > 0) {
+                            passed = !!checkedFilters.filter(filterName => {
+                                return tests[filterName];
+                            }).length
+                        }
+
+                        let inner = document.createElement('div');
+                        inner.className = 'cell-inner';
+                        if (!passed) {
+                            inner.style.opacity = 0;
+                        }
+
+                        let div2 = document.createElement('div');
+
+                        let div = document.createElement('div');
+                        div.className = 'color-label';
+                        div.textContent = 'Aa';
+                        div2.appendChild(div);
+
+                        div = document.createElement('div');
+                        div.className = 'contrast';
+                        div.textContent = WCAG21Contrast ? (Math.round(WCAG21Contrast * 100) / 100) : '';
+                        div2.appendChild(div);
+                        inner.appendChild(div2);
+
+                        div = document.createElement('div');
+                        div.className = 'badges';
+                        for (const [key, passed] of Object.entries(tests)) {
+                            const span = document.createElement("span");
+                            span.className = 'badge';
+                            span.classList.add(passed ? 'pass' : 'fail');
+                            span.innerText = key;
+                            div.appendChild(span);
+                        }
+                        inner.appendChild(div);
+
+                        td.appendChild(inner);
+                        tr.appendChild(td);
+                    });
+                    tbody.appendChild(tr);
+                });
+                table.appendChild(tbody);
+
+                this.#outputContainer.classList.toggle('hide-badges', this.#form['toggle-badges']?.checked);
+                this.#outputContainer.replaceChildren(table);
+            }
+        }
+
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', () => {
+            new ColorContrastGrid(document.getElementById("colorContrastGrid"));
+        });
+    </script>
+</head>
+<body>
+
+<div id="colorContrastGrid">
+    <div>
+        <form method="get" id="input">
+            <div>
+                <label for="colours">Colors (one per line: color[: label])</label>
+                <textarea id="colours" spellcheck="false" name="colours">#FFA300:Apricot
+#2B233D:Aubergine
+#00CEAE:Teal
+#3E3E78:Purple
+#E21145:Red
+#F2F2F2:Light Grey
+#EBE9F0:Lilac
+#A1B6B7:Mid Grey
+#2E393B:Charcoal</textarea>
+            </div>
+            <div>
+                <fieldset id="wcag-filters">
+                    <legend>WCAG 2.1 Tests</legend>
+                    <div>
+                        <div><label><input type="checkbox" id="filter-aa" name="tests" value="AA">AA (Normal)</label></div>
+                        <div><label><input type="checkbox" id="filter-lgaa" name="tests" value="AA LG">AA (Large)</label></div>
+                        <div><label><input type="checkbox" id="filter-aaa" name="tests" value="AAA">AAA (Normal)</label></div>
+                        <div><label><input type="checkbox" id="filter-lgaaa" name="tests" value="AAA LG">AAA (Large)</label></div>
+                    </div>
+                </fieldset>
+            </div>
+            <div>
+                <label><input type="checkbox" id="toggle-badges" name="toggle-badges"> Hide badges</label>
+            </div>
+            <!-- <button type="submit">Generate Grid</button> -->
+        </form>
+        <div class="credits">
+            <p>A simple colour contrast grid generator that allows users to visualize and analyze the contrast between foreground and background colors using WCAG 2.1 and APCA standards.</p>
+            <p>Demo: <a href="https://newism.github.io/colour-contrast-grid/" rel="nofollow">https://newism.github.io/colour-contrast-grid/</a></p>
+            <p>Developed quick and dirty by <a href="https://github.com/leevigraham">@leevigraham</a> at <a href="https://newism.com.au">newism.com.au</a>.</p>
+        </div>
+    </div>
+    <div id="output" aria-live="polite" aria-busy="false" style="overflow: auto;"></div>
+</div>
+</body>
+</html>
